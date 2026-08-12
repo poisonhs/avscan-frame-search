@@ -27,13 +27,18 @@ description: 通过 avscan.cc 免费 API 做识图反查日本 AV 番号与时�
    3. MIDV-103  89.54%  @ 00:44:43 / 00:45:29
       [缩略图] [缩略图]
    ```
-5. **缩略图**：对每个番号下载其 `frames` 数组全部帧的缩略图（或直接用 URL 让用户查看）：
-   ```bash
-   python scripts/avscan.py thumbs <图片路径> -o <输出目录> --skip-placeholder
-   ```
+5. **缩略图展示（必须内联渲染图片，不能只写文字）**：
+   - **方式 A（推荐，任何支持 Markdown 的 Agent）**：直接用 Markdown 图片语法内联渲染，不要用 `[缩略图]` 之类的文字占位：
+     ```markdown
+     **1. OFJE-264** 89.93% @ 00:21:56 / 00:22:20 / 00:21:53 / 00:21:48
+     ![](https://avscan.cc/thumb/OFJE-264/OFJE-264_00-21-56.webp) ![](https://avscan.cc/thumb/OFJE-264/OFJE-264_00-22-20.webp)
+     **2. SSIS-783** 89.85% @ 00:26:27 / 00:26:30
+     ![](https://avscan.cc/thumb/SSIS-783/SSIS-783_00-26-27.webp) ![](https://avscan.cc/thumb/SSIS-783/SSIS-783_00-26-30.webp)
+     ```
+   - **方式 B（有图片显示工具的 Agent）**：调用图片工具传入缩略图 URL 逐组展示。
    - 缩略图 URL 格式：`https://avscan.cc/thumb/{video_code}/{image_name去掉扩展名}.webp`（如 `OFJE-264_00-21-56.jpg` → `https://avscan.cc/thumb/OFJE-264/OFJE-264_00-21-56.webp`）
    - 每个番号最多 6 帧；多帧可验证匹配可靠性（不同时间点画面是否一致）
-   - 极少数帧（无缩略图索引）返回灰色占位图（400×224，颜色数 <50），用 `--skip-placeholder` 自动跳过
+   - 极少数帧（无缩略图索引）返回灰色占位图（400×224，颜色数 <50），用 `--skip-placeholder` 自动跳过；也可用 `scripts/avscan.py thumbs` 下载到本地后再展示本地文件
 
 ## 常用命令
 
