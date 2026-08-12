@@ -1,6 +1,6 @@
 ---
 name: avscan-frame-search
-description: "通过 avscan.cc 免费 API 做识图反查日本 AV 番号与时间点。使用当用户提供视频截图/帧画面，需要反查作品番号、相似度或对应时间点时；支持本地图片、URL 图片和批量识别。"
+description: 通过 avscan.cc 免费 API 做识图反查日本 AV 番号与时间点。使用当用户提供视频截图/帧画面，需要反查作品番号、相似度或对应时间点时；支持本地图片、URL 图片和批量识别。
 ---
 
 # AVScan Frame Search
@@ -10,12 +10,15 @@ description: "通过 avscan.cc 免费 API 做识图反查日本 AV 番号与时�
 ## 工作流
 
 1. 确认输入图片来源：
-   - 本地图片路径 → 直接用 `curl -F "file=@路径"` 上传
-   - URL 图片 → 先下载到本地临时文件再上传
-   - 批量图片 → 逐张调用，结果汇总为表格/CSV
-2. 调用接口并解析响应（见 `references/api.md` 的完整字段与示例）。
-3. **返回全部查询结果，按番号分组交付**：返回接口给出的**全部结果**（服务端上限 20 条，无分页，实际可能少于 20——取决于匹配数量；已实测 `limit`/`top_k`/`page`/`offset` 等参数均被忽略），每个番号一组，格式为「番号 → 该番号对应的所有缩略图」，从第 1 名逐组向下排列：
-
+   - 本地图片路径 → 直接传入 CLI
+   - URL 图片 → 先下载到本地临时文件，再传入 CLI
+   - 批量图片 → 用 `batch` 子命令，结果汇总为 CSV
+2. 调用 `scripts/avscan.py` 识图反查：
+   ```bash
+   python scripts/avscan.py search <图片路径> --json
+   ```
+3. 返回接口给出的**全部结果**（服务端上限 20 条，无分页，实际可能少于 20——取决于匹配数量；`limit`/`top_k`/`page`/`offset` 等参数均被服务端忽略），按相似度降序。
+4. **按番号分组交付**：每个番号一组，格式为「番号 → 该番号对应的所有缩略图」，从第 1 名逐组向下排列：
    ```
    1. OFJE-264  89.93%  @ 00:21:56 / 00:22:20 / 00:21:53 / 00:21:48
       [缩略图] [缩略图] [缩略图] [缩略图]   ← 该番号全部帧
@@ -23,36 +26,44 @@ description: "通过 avscan.cc 免费 API 做识图反查日本 AV 番号与时�
       [缩略图] [缩略图]                     ← 该番号全部帧
    3. MIDV-103  89.54%  @ 00:44:43 / 00:45:29
       [缩略图] [缩略图]
-   ...
-   20. NHDTB-703  88.47%  @ 00:46:34 / 00:46:56
-      [缩略图] [缩略图]
    ```
-
-4. **缩略图按番号分组调用展示**：对每个番号单独调用一次 Image 工具（传入该番号 `frames` 数组全部帧的缩略图 URL），**所有番号逐组全部展示，不省略**；UI 里图片与番号一一对应、逐组呈现：
-   - 缩略图 URL：`https://avscan.cc/thumb/{video_code}/{image_name去掉扩展名}.webp`（如 `OFJE-264_00-21-56.jpg` → `https://avscan.cc/thumb/OFJE-264/OFJE-264_00-21-56.webp`）
+5. **缩略图**：对每个番号下载其 `frames` 数组全部帧的缩略图（或直接用 URL 让用户查看）：
+   ```bash
+   python scripts/avscan.py thumbs <图片路径> -o <输出目录> --skip-placeholder
+   ```
+   - 缩略图 URL 格式：`https://avscan.cc/thumb/{video_code}/{image_name去掉扩展名}.webp`（如 `OFJE-264_00-21-56.jpg` → `https://avscan.cc/thumb/OFJE-264/OFJE-264_00-21-56.webp`）
    - 每个番号最多 6 帧；多帧可验证匹配可靠性（不同时间点画面是否一致）
-   - 组数较多时可多组并行调用 Image（`urls` 数组），但保持每组的番号顺序不变
-   - 极少数帧（无缩略图索引）返回灰色占位图（400×224，颜色数 <50），可跳过该帧（`is_placeholder()` 见 `references/api.md`）
+   - 极少数帧（无缩略图索引）返回灰色占位图（400×224，颜色数 <50），用 `--skip-placeholder` 自动跳过
 
-## 核心调用
+## 常用命令
 
 ```bash
-curl -s --max-time 30 -X POST https://www.avscan.cc/search \
-  -F "file=@截图.jpg;type=image/jpeg"
-```
+# 识图搜番（文本表格输出）
+python scripts/avscan.py search 截图.jpg
 
-响应：`{"results":[{video_code, best_similarity, frames:[{image_name, similarity}]}, ...]}`，最多 20 条（无分页），按相似度降序。
+# 识图搜番（JSON 输出，方便程序解析）
+python scripts/avscan.py search 截图.jpg --json
+
+# 识图并下载全部命中帧缩略图（跳过灰色占位图）
+python scripts/avscan.py thumbs 截图.jpg -o ./thumbs --skip-placeholder
+
+# 批量识图，输出 CSV
+python scripts/avscan.py batch 图1.jpg 图2.jpg 图3.jpg -o results.csv
+
+# 站点统计（今日检索量 / 收录量 / 热搜）
+python scripts/avscan.py stats
+```
 
 ## 要点
 
-- 建议先裁剪到特征区域、去水印再搜，准确率更高；前端实际发送的是长边 1024px、JPEG 0.85 的压缩图，直接传原图效果相当。
+- 建议先裁剪到特征区域、去水印再搜，准确率更高；站点前端实际发送的是长边 1024px、JPEG 0.85 的压缩图，直接传原图效果相当。
 - 上传 ≤8MB；非图片返回 `400 {"detail":"invalid image"}`。
-- 相同图片会命中结果缓存（秒回、结果一致）。
+- 相同图片会命中服务端结果缓存（秒回、结果一致）。
 - 时间点解析：`MGNL-142_02-01-28.jpg` → `02:01:28`（第 2 分 1 秒 28 帧）。
 - 相似度分档参考：≥85 高 / ≥70 中 / 其余低；纯色无特征图也可能得到虚高的相似度，需结合结果排序人工判断。
-- `/thumb` 缩略图接口**大部分帧返回真实画面**（实测真实截图搜索的帧几乎全部有图）；极少数帧（如冷门作品/纯色测试图命中的帧）返回灰色占位图，可下载后按颜色数 <50 判断并跳过。
-- 缩略图 400×224 WEBP，CDN 缓存一年（immutable），可放心批量下载。
+- 缩略图 400×224 WEBP，CDN 缓存一年（immutable），可放心批量下载；绝大多数帧是真实画面，极少数冷门帧返回灰色占位图。
+- 高频调用可能触发 429 限流，批量时加 0.3–1s 间隔。
 
 ## 参考
 
-- `references/api.md` — 接口细节、Python 示例、错误处理、批量脚本
+- `references/api.md` — 接口细节、错误处理、Python 示例
