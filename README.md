@@ -1,44 +1,48 @@
 # avscan-frame-search
 
-通过 [avscan.cc](https://www.avscan.cc) 免费 API 做**识图反查日本 AV 番号**的 LiveAgent Skill。
+通过 [avscan.cc](https://www.avscan.cc) 免费 API 做**识图反查日本 AV 番号**的通用 Agent Skill。
 
 上传一张视频截图/帧画面，毫秒级反查作品番号（video_code）、相似度（best_similarity）与对应时间点，并返回命中帧缩略图。免注册、免鉴权、无限次。
+
+不依赖任何特定 Agent 平台（LiveAgent / Claude / Codex / Cursor 均可使用）——核心是一个独立 Python CLI 脚本，只有标准库依赖。
 
 ## 功能
 
 - 🔍 **识图搜番**：上传截图，反查番号 + 相似度 + 时间点（`image_name` 中自动解析 `HH:MM:SS`）
-- 🖼 **缩略图交付**：每个番号一组，展示该番号命中的所有帧缩略图（最多 6 帧），逐组排列
+- 🖼 **缩略图交付**：下载每个番号命中的所有帧缩略图（最多 6 帧）
 - 📦 **全部结果**：返回接口给出的全部番号（服务端上限 20 条，无分页）
-- 🧹 **灰图过滤**：自动识别并跳过灰色占位图（`is_placeholder()`）
-- 📊 **批量识别**：支持多张图片批量反查，可导出 CSV
+- 🧹 **灰图过滤**：自动识别并跳过灰色占位图（需 PIL，可选）
+- 📊 **批量识别**：多张图片批量反查，导出 CSV
+- 📈 **站点统计**：今日检索量 / 收录量 / 热搜
 
-## 安装
-
-### 方式一：LiveAgent SkillsManager（推荐）
-
-```bash
-SkillsManager(action=install, source=https://github.com/poisonhs/avscan-frame-search)
-```
-
-或下载本仓库的 `avscan-frame-search.skill` 归档后本地安装：
+## 快速开始
 
 ```bash
-SkillsManager(action=install, source=./avscan-frame-search.skill)
+# 识图搜番（表格输出）
+python scripts/avscan.py search 截图.jpg
+
+# JSON 输出（方便程序解析）
+python scripts/avscan.py search 截图.jpg --json
+
+# 识图并下载全部命中帧缩略图
+python scripts/avscan.py thumbs 截图.jpg -o ./thumbs --skip-placeholder
+
+# 批量识图，导出 CSV
+python scripts/avscan.py batch 图1.jpg 图2.jpg -o results.csv
+
+# 站点统计
+python scripts/avscan.py stats
 ```
 
-安装后会自动启用，可直接使用。
+依赖：Python 3.8+，仅标准库（`urllib`）。`--skip-placeholder` 需要 `Pillow`（可选）。
 
-### 方式二：手动复制
+## 作为 Agent Skill 使用
 
-将 `SKILL.md` 与 `references/` 目录放入 LiveAgent 的 skills 根目录，然后在聊天中启用。
-
-## 使用
-
-在对话中直接提供截图即可触发（支持本地图片、URL 图片）：
-
-> 反查番号 [上传图片]
-
-交付格式：
+1. 把本仓库加入 Agent 的知识/技能目录，或直接告诉 Agent 使用 `scripts/avscan.py`。
+2. 用户提供截图时：
+   - 本地图片 → 直接传给 CLI
+   - URL 图片 → 先下载到本地临时文件
+3. 解析 CLI 的 JSON 输出，按番号分组交付：
 
 ```
 1. OFJE-264  89.93%  @ 00:21:56 / 00:22:20 / 00:21:53 / 00:21:48
@@ -48,7 +52,35 @@ SkillsManager(action=install, source=./avscan-frame-search.skill)
 ...
 ```
 
-## 核心接口
+缩略图 URL 格式：`https://avscan.cc/thumb/{番号}/{帧名去掉扩展名}.webp`
+
+## CLI 输出示例
+
+```bash
+$ python scripts/avscan.py search shot.png
+1. OFJE-264  89.93%  @ 00:21:56 / 00:22:20 / 00:21:53 / 00:21:48
+2. SSIS-783  89.85%  @ 00:26:27 / 00:26:30
+3. MIDV-103  89.54%  @ 00:44:43 / 00:45:29
+```
+
+```bash
+$ python scripts/avscan.py search shot.png --json
+{
+  "results": [
+    {
+      "video_code": "OFJE-264",
+      "best_similarity": 89.93,
+      "frames": [
+        {"image_name": "OFJE-264_00-21-56.jpg", "similarity": 89.93},
+        ...
+      ]
+    },
+    ...
+  ]
+}
+```
+
+## 核心接口（直接用也可以）
 
 ### POST /search — 识图搜番
 
@@ -58,25 +90,7 @@ Content-Type: multipart/form-data
 表单字段: file=<图片>   (image/*, ≤8MB)
 ```
 
-响应（最多 20 条，按相似度降序）：
-
-```json
-{
-  "results": [
-    {
-      "video_code": "MGNL-142",
-      "best_similarity": 99.98,
-      "frames": [
-        { "image_name": "MGNL-142_00-00-09.jpg", "similarity": 99.98 },
-        { "image_name": "MGNL-142_02-01-28.jpg", "similarity": 97.55 }
-      ]
-    }
-  ]
-}
-```
-
-- `image_name` 格式 `{番号}_{时-分-秒}.jpg`，时间点即画面在片中的位置
-- `limit`/`top_k`/`page`/`offset` 等参数均被服务端忽略，无分页
+响应：`{"results":[{video_code, best_similarity, frames:[{image_name, similarity}]}, ...]}`，最多 20 条，按相似度降序。`limit`/`top_k`/`page`/`offset` 参数均被忽略，无分页。
 
 ### GET /thumb/{code}/{base}.webp — 命中帧缩略图
 
@@ -84,50 +98,42 @@ Content-Type: multipart/form-data
 https://avscan.cc/thumb/CSCT-002/CSCT-002_02-15-20.webp
 ```
 
-400×224 WEBP，绝大多数为真实画面；CDN 缓存一年（immutable），可批量下载。
+400×224 WEBP，绝大多数为真实画面；CDN 缓存一年（immutable）。
 
-## 快速调用示例
+### 其他
 
-### curl
+| 接口 | 用途 |
+|---|---|
+| `GET /stats/daily` | 今日检索量 |
+| `GET /stats/indexed` | 收录帧数 |
+| `GET /stats/hot?limit=N` | 热搜番号 |
 
-```bash
-curl -s --max-time 30 -X POST https://www.avscan.cc/search \
-  -F "file=@截图.jpg;type=image/jpeg"
-```
+## 错误处理
 
-### Python
-
-```python
-import requests
-
-def search_frame(image_path: str, top_n: int = 10):
-    r = requests.post(
-        "https://www.avscan.cc/search",
-        files={"file": (image_path.split("/")[-1], open(image_path, "rb"), "image/jpeg")},
-        timeout=30,
-    )
-    r.raise_for_status()
-    return r.json()["results"][:top_n]
-
-def parse_timestamp(image_name: str) -> str:
-    """'MGNL-142_02-01-28.jpg' -> '02:01:28'"""
-    base = image_name.rsplit("/", 1)[-1].rsplit(".", 1)[0]
-    return base.rsplit("_", 1)[-1].replace("-", ":")
-
-for v in search_frame("截图.jpg"):
-    print(v["video_code"], v["best_similarity"],
-          parse_timestamp(v["frames"][0]["image_name"]))
-```
-
-更多示例（缩略图下载、灰图过滤、批量 CSV）见 `references/api.md`。
+| 状态码 | 含义 | 处理 |
+|---|---|---|
+| 400 | 非图片文件 | 检查文件格式 |
+| 429 | 限流 | 稍后重试，批量时加 0.3–1s 间隔 |
+| 其他 | 服务器错误 | 查看 `detail` 字段 |
 
 ## 提示
 
 - 建议先裁剪到特征区域、去水印再搜，准确率更高
-- 上传 ≤8MB；非图片返回 `400 {"detail":"invalid image"}`
 - 相同图片会命中服务端结果缓存（秒回、结果一致）
-- 高频调用可能触发 429 限流，批量时加 0.3–1s 间隔
 - 相似度分档参考：≥85 高 / ≥70 中 / 其余低
+- 纯色无特征图可能得到虚高的相似度，需结合结果排序人工判断
+
+## 目录结构
+
+```
+avscan-frame-search/
+├── SKILL.md              # Skill 描述与工作流（通用格式）
+├── README.md             # 本文档
+├── scripts/
+│   └── avscan.py         # 独立 CLI（仅标准库）
+└── references/
+    └── api.md            # 接口细节与 Python 示例
+```
 
 ## 声明
 
